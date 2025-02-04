@@ -1,9 +1,9 @@
-import {Response} from "node-fetch";
 import {AuthHandler} from "../src/authHandler";
 import {MintHandler} from "../src/mintHandler";
 import {getCurrentTimestamp} from "../src/timeUtils";
 import {UserDb} from "../src/userDb";
 import {RewardData} from "../src/rewardModel";
+import {getResponse} from "../src/networkUtils";
 
 const rewardsConfig: RewardData[][] = [
     [{type: 'ERC1155', contractAddress: '0xd2926e2ee243e8df781ab907b48f77ec5d7a8be1', tokenId: 3, amount: 1}],
@@ -13,7 +13,7 @@ const rewardsConfig: RewardData[][] = [
     [{type: 'ERC1155', contractAddress: '0xd2926e2ee243e8df781ab907b48f77ec5d7a8be1', tokenId: 4, amount: 1}],
 ]
 
-const timeDelay = 15;
+const timeSpan = 15;
 
 export const onRequest: PagesFunction<Env> = async (context) => {
     try {
@@ -22,21 +22,23 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
         switch (context.request.method) {
             case "OPTIONS":
-                return new Response(`Pass-through for CORS requests`);
+                return getResponse(JSON.stringify({
+                    msg: 'Pass-through for CORS requests'
+                }));
             case "GET":
                 const getWalletAddress = await AuthHandler.verifyRequest(context);
-                const getUserStatus = await userDb.getUserStatus(context, getWalletAddress, timeDelay);
+                const getUserStatus = await userDb.getUserStatus(context, getWalletAddress, timeSpan);
 
-                return new Response(JSON.stringify({
-                    nextClaimTime: getUserStatus.lastClaimTime + timeDelay,
+                return getResponse(JSON.stringify({
+                    timeSpan: timeSpan,
                     userStatus: getUserStatus,
                     rewards: rewardsConfig
                 }));
             case "POST":
                 const postWalletAddress = await AuthHandler.verifyRequest(context);
-                const postUserStatus = await userDb.getUserStatus(context, postWalletAddress, timeDelay);
+                const postUserStatus = await userDb.getUserStatus(context, postWalletAddress, timeSpan);
                 const timePassed = curTime - postUserStatus.lastClaimTime;
-                if (timePassed < timeDelay) {
+                if (timePassed < timeSpan) {
                     throw new Error('Cannot claim reward yet.');
                 }
 
@@ -58,8 +60,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
                 await userDb.setUserStatus(context, newUserStatus);
 
-                return new Response(JSON.stringify({
-                    nextClaimTime: curTime + timeDelay,
+                return getResponse(JSON.stringify({
+                    timeSpan: timeSpan,
                     userStatus: newUserStatus,
                     rewards: rewardsConfig
                 }));
@@ -67,9 +69,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
                 throw new Error("Unsupported request method.");
         }
     } catch (e: Error) {
-        const response = new Response(`${e.message} (${e.stack})`);
-        response.ok = false;
-        response.status = 401;
-        return response;
+        return getResponse(`${e.message} (${e.stack})`, 500);
     }
 };
